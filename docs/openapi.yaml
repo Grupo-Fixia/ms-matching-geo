@@ -1,0 +1,353 @@
+openapi: 3.1.0
+info:
+  title: Geo Matching Service
+  description: Técnicos compatibles con una categoría y una zona de atención, con los datos de ms-users.
+  version: 0.1.0
+paths:
+  /api/geo/matching/technicians:
+    post:
+      tags:
+      - matching
+      summary: Buscar técnicos por especialidad y zona (cliente)
+      description: 'Técnicos que ofrecen la categoría y atienden la ciudad indicadas, en orden estable y sin ranking.
+
+        Si la consulta trae `latitude` y `longitude` (juntas), se descartan los técnicos cuyo círculo de zona no cubre ese
+        punto;
+
+        si el técnico no definió círculo, o no se envía el punto, basta la ciudad.
+
+
+        **Paginación por cursor.** Una consulta revisa como máximo 1500 técnicos. Una página puede venir corta, o vacía, con
+
+        `nextCursor` no nulo: hay que seguir pidiendo hasta que sea nulo.
+
+
+        No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si ms-users no responde, devuelve 502 y no
+        una
+
+        lista vacía.
+
+
+        Solo con rol `CLIENT`. Revisa la revocación del token en ms-users en cada petición.'
+      operationId: match_public_api_geo_matching_technicians_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchResponse'
+        '400':
+          description: Datos inválidos o cursor no válido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Credencial ausente o no válida (siempre la misma respuesta).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          description: No se pudo consultar a ms-users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: El rol no permite la acción.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /internal/matching/technicians:
+    post:
+      tags:
+      - matching
+      summary: Buscar técnicos por especialidad y zona (interna)
+      description: 'Técnicos que ofrecen la categoría y atienden la ciudad indicadas, en orden estable y sin ranking.
+
+        Si la consulta trae `latitude` y `longitude` (juntas), se descartan los técnicos cuyo círculo de zona no cubre ese
+        punto;
+
+        si el técnico no definió círculo, o no se envía el punto, basta la ciudad.
+
+
+        **Paginación por cursor.** Una consulta revisa como máximo 1500 técnicos. Una página puede venir corta, o vacía, con
+
+        `nextCursor` no nulo: hay que seguir pidiendo hasta que sea nulo.
+
+
+        No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si ms-users no responde, devuelve 502 y no
+        una
+
+        lista vacía.
+
+
+        Ruta interna para otros microservicios (ms-services); Traefik no la publica. Protegida por la cabecera `X-Internal-Api-Key`.'
+      operationId: match_internal_internal_matching_technicians_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchResponse'
+        '400':
+          description: Datos inválidos o cursor no válido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Credencial ausente o no válida (siempre la misma respuesta).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          description: No se pudo consultar a ms-users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /health:
+    get:
+      tags:
+      - health
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+components:
+  schemas:
+    Category:
+      type: string
+      enum:
+      - PLUMBING
+      - ELECTRICAL
+      - MAINTENANCE
+      - LOCKSMITHING
+      - PAINTING
+      - CARPENTRY
+      title: Category
+      description: Categorías de servicio del catálogo de ms-users (`ServiceCategory`); en la API viaja el nombre.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    MatchItem:
+      properties:
+        userId:
+          type: string
+          title: Userid
+          examples:
+          - 7ec00000-0000-4000-8000-000000000001
+        displayName:
+          type: string
+          title: Displayname
+          description: Nombre e inicial del apellido.
+          examples:
+          - Carlos G.
+        categories:
+          items:
+            type: string
+          type: array
+          title: Categories
+        city:
+          type: string
+          title: City
+          description: Ciudad de la zona de atención.
+      type: object
+      required:
+      - userId
+      - displayName
+      - categories
+      - city
+      title: MatchItem
+      description: Un técnico compatible. No incluye distancia, centro ni radio de su zona, ni datos de contacto.
+    MatchRequest:
+      properties:
+        category:
+          $ref: '#/components/schemas/Category'
+          description: Categoría de servicio.
+        city:
+          type: string
+          maxLength: 100
+          title: City
+          description: Ciudad de la zona de atención, sin distinguir mayúsculas ni tildes.
+          examples:
+          - Bogotá
+        latitude:
+          anyOf:
+          - type: number
+            maximum: 90.0
+            minimum: -90.0
+          - type: 'null'
+          title: Latitude
+          description: Latitud aproximada de la solicitud.
+        longitude:
+          anyOf:
+          - type: number
+            maximum: 180.0
+            minimum: -180.0
+          - type: 'null'
+          title: Longitude
+          description: Longitud aproximada de la solicitud.
+        limit:
+          anyOf:
+          - type: integer
+            maximum: 50.0
+            minimum: 1.0
+          - type: 'null'
+          title: Limit
+          description: Resultados por página (por defecto 20).
+        cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+          description: El `nextCursor` de la página anterior; sin él se empieza desde el principio.
+      type: object
+      required:
+      - category
+      - city
+      title: MatchRequest
+      description: 'Qué técnicos se buscan: los que ofrecen la categoría y atienden la ciudad. Si trae el punto aproximado
+        de la
+
+        solicitud (`latitude` y `longitude`, juntas), se descartan los técnicos cuyo círculo de zona no lo cubre.'
+    MatchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MatchItem'
+          type: array
+          title: Items
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nextcursor
+          description: 'Nulo solo cuando no quedan técnicos por revisar. Una página puede venir corta, o vacía, con cursor
+            no nulo: hay que seguir pidiendo hasta que sea nulo.'
+      type: object
+      required:
+      - items
+      - nextCursor
+      title: MatchResponse
+    Problem:
+      properties:
+        type:
+          type: string
+          title: Type
+          default: about:blank
+        title:
+          type: string
+          title: Title
+        status:
+          type: integer
+          title: Status
+        detail:
+          type: string
+          title: Detail
+        instance:
+          type: string
+          title: Instance
+        errors:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/ProblemError'
+            type: array
+          - type: 'null'
+          title: Errors
+      type: object
+      required:
+      - title
+      - status
+      - detail
+      - instance
+      title: Problem
+      description: Error en formato RFC 7807, igual que ms-users y ms-services.
+    ProblemError:
+      properties:
+        field:
+          type: string
+          title: Field
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - field
+      - message
+      title: ProblemError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      description: Access token de ms-users (JWT RS256) de un cliente.
+      scheme: bearer
+    APIKeyHeader:
+      type: apiKey
+      description: Clave compartida entre microservicios (INTERNAL_API_KEY).
+      in: header
+      name: X-Internal-Api-Key
