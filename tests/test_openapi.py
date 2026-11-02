@@ -16,3 +16,10 @@ def test_el_contrato_publica_las_dos_rutas_y_no_expone_el_circulo():
     assert set(spec["paths"]) == {"/api/geo/matching/technicians", "/internal/matching/technicians", "/health"}
     item = spec["components"]["schemas"]["MatchItem"]["properties"]
     assert set(item) == {"userId", "displayName", "categories", "city"}
+
+
+def test_el_contrato_documenta_el_momento_esperado_opcional_con_zona_horaria():
+    request = build_spec()["components"]["schemas"]["MatchRequest"]
+
+    assert "expectedAt" in request["properties"]
+    assert "expectedAt" not in request.get("required", [])

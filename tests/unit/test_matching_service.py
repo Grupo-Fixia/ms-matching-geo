@@ -1,5 +1,6 @@
 """Caso de uso de matching con un directorio falso: filtro por círculo, paginación y presupuesto de llamadas."""
 import dataclasses
+from datetime import datetime, timezone
 
 import pytest
 
@@ -15,9 +16,11 @@ def candidate(user_id: str, circle: ZoneCircle | None = None, city: str = "Bogot
     return Candidate(user_id, "Carlos G.", ("PLUMBING",), city, circle)
 
 
-def query(limit: int = 20, cursor: str | None = None, point: tuple | None = CHAPINERO) -> MatchQuery:
+def query(
+    limit: int = 20, cursor: str | None = None, point: tuple | None = CHAPINERO, expected_at: datetime | None = None
+) -> MatchQuery:
     latitude, longitude = point if point else (None, None)
-    return MatchQuery(Category.PLUMBING, "Bogotá", latitude, longitude, limit, cursor)
+    return MatchQuery(Category.PLUMBING, "Bogotá", latitude, longitude, limit, cursor, expected_at)
 
 
 class FakeDirectory:
@@ -26,9 +29,11 @@ class FakeDirectory:
     def __init__(self, *pages: CandidatePage) -> None:
         self._pages = list(pages)
         self.calls: list[tuple[int, str | None]] = []
+        self.expected_ats: list[datetime | None] = []
 
-    def search(self, category, city, limit, cursor):
+    def search(self, category, city, limit, cursor, expected_at=None):
         self.calls.append((limit, cursor))
+        self.expected_ats.append(expected_at)
         return self._pages.pop(0)
 
 
@@ -128,3 +133,35 @@ def test_si_ms_users_devuelve_mas_de_lo_pedido_falla_en_lugar_de_perder_tecnicos
 
     with pytest.raises(UpstreamUnavailable):
         MatchingService(directory).find(query(limit=1))
+
+
+MONDAY_9AM_BOGOTA = datetime(2026, 10, 19, 14, 0, tzinfo=timezone.utc)
+
+
+def test_pasa_el_momento_esperado_a_ms_users_en_cada_llamada_de_la_consulta():
+    directory = FakeDirectory(
+        CandidatePage([], "c1"), CandidatePage([], "c2"), CandidatePage([candidate("a")], None)
+    )
+
+    result = MatchingService(directory).find(query(expected_at=MONDAY_9AM_BOGOTA))
+
+    assert ids(result) == ["a"]
+    assert directory.expected_ats == [MONDAY_9AM_BOGOTA] * 3
+
+
+def test_sin_momento_esperado_no_se_filtra_por_horario():
+    directory = FakeDirectory(CandidatePage([candidate("a")], None))
+
+    MatchingService(directory).find(query())
+
+    assert directory.expected_ats == [None]
+
+
+def test_la_disponibilidad_no_cambia_el_filtro_de_zona():
+    inside = candidate("dentro", ZoneCircle(*CENTER, 5))
+    outside = candidate("fuera", ZoneCircle(*CENTER, 2))
+    directory = FakeDirectory(CandidatePage([inside, outside], None))
+
+    result = MatchingService(directory).find(query(expected_at=MONDAY_9AM_BOGOTA))
+
+    assert ids(result) == ["dentro"]
