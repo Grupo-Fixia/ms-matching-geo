@@ -13,8 +13,9 @@ class MatchingService:
     """ms-users filtra por categoría y ciudad; aquí se aplica el círculo de la zona con el punto de la solicitud.
 
     Una página puede venir corta, o vacía, con `next_cursor` no nulo: significa que quedan técnicos por revisar y hay
-    que seguir pidiendo hasta que sea nulo. Del resultado se descarta el círculo: el domicilio aproximado del técnico no
-    sale de este servicio.
+    que seguir pidiendo hasta que sea nulo. El momento esperado, si lo hay, se pasa a ms-users en cada llamada: la
+    disponibilidad la evalúa quien tiene las franjas. Del resultado se descarta el círculo: el domicilio aproximado
+    del técnico no sale de este servicio.
     """
 
     def __init__(self, directory: TechnicianDirectory, max_upstream_calls: int = MAX_UPSTREAM_CALLS) -> None:
@@ -27,7 +28,7 @@ class MatchingService:
         calls = 0
         while True:
             remaining = query.limit - len(matches)
-            page = self._directory.search(query.category, query.city, remaining, cursor)
+            page = self._directory.search(query.category, query.city, remaining, cursor, query.expected_at)
             calls += 1
             if len(page.items) > remaining:
                 # Con más de lo pedido, el cursor quedaría más allá de técnicos que no se devolvieron.

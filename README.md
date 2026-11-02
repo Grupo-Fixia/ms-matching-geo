@@ -7,9 +7,11 @@ ADR-015/022) y aplica el círculo de la zona de atención de cada técnico.
 ## Alcance de esta versión
 
 - Filtra por **especialidad** (categoría) y **zona de atención** (ciudad y, si el técnico la definió, círculo de centro y radio).
-- **Fuera de alcance:** disponibilidad, verificación, ranking por distancia o reputación, PostGIS y eventos. La
-  disponibilidad y la verificación siguen evaluándose en `ms-users` con la elegibilidad
-  (`POST /internal/technicians/{userId}/eligibility`, ADR-041).
+- **Disponibilidad** (opcional): con `expectedAt` solo devuelve a los técnicos con una franja semanal que incluya ese instante,
+  en hora de Colombia. Matching no la evalúa: la transmite a `ms-users`, que tiene las franjas (GC-474).
+- **Verificación:** la decide la configuración de `ms-users` (`fixia.eligibility.require-verified`, por defecto apagada); si
+  está activa, solo se devuelven técnicos con verificación vigente. No cambia esta API.
+- **Fuera de alcance:** ranking por distancia o reputación, PostGIS y eventos.
 - Sin base de datos propia: es una vista de consulta sobre `ms-users`.
 
 ## Rutas
@@ -22,9 +24,11 @@ ADR-015/022) y aplica el círculo de la zona de atención de cada técnico.
 
 Contrato completo en [`docs/openapi.yaml`](docs/openapi.yaml) (generado desde el código; una prueba falla si se desvía).
 
-**Entrada:** `{category, city, latitude?, longitude?, limit?, cursor?}`. `category` es una de `PLUMBING`, `ELECTRICAL`,
+**Entrada:** `{category, city, latitude?, longitude?, expectedAt?, limit?, cursor?}`. `category` es una de `PLUMBING`, `ELECTRICAL`,
 `MAINTENANCE`, `LOCKSMITHING`, `PAINTING`, `CARPENTRY`. `limit` de 1 a 50 (20 por defecto). `latitude` y `longitude` van
-juntas o ninguna: son el punto aproximado de la solicitud.
+juntas o ninguna: son el punto aproximado de la solicitud. `expectedAt` es el momento esperado de la solicitud (ISO-8601 **con
+zona horaria**, por ejemplo `2026-10-19T09:00:00-05:00` o terminado en `Z`; una fecha sin zona da 400): se normaliza a UTC y se envía a
+`ms-users` en cada llamada de la consulta. Un técnico sin franjas declaradas no aparece cuando se envía `expectedAt`.
 
 **Salida:** `{items: [{userId, displayName, categories, city}], nextCursor}`.
 
@@ -38,6 +42,9 @@ juntas o ninguna: son el punto aproximado de la solicitud.
 - **Errores** en problem+json (RFC 7807): `400` datos o cursor inválidos, `401` credencial ausente o inválida (siempre la
   misma respuesta), `403` rol no permitido, `502` si ms-users no responde o responde algo inválido (nunca una lista vacía,
   que parecería que no hay técnicos).
+
+> **Dependencia:** `expectedAt` requiere `ms-users` con GC-474 (PR #33) o posterior; un `ms-users` anterior ignora el campo y no
+> filtra por horario.
 
 ## Seguridad
 

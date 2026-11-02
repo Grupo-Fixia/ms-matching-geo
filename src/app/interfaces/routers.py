@@ -18,6 +18,10 @@ _FORBIDDEN = {403: {"model": Problem, "description": "El rol no permite la acci�
 _DESCRIPTION = """Técnicos que ofrecen la categoría y atienden la ciudad indicadas, en orden estable y sin ranking.
 Si la consulta trae `latitude` y `longitude` (juntas), se descartan los técnicos cuyo círculo de zona no cubre ese punto;
 si el técnico no definió círculo, o no se envía el punto, basta la ciudad.
+Si la consulta trae `expectedAt` (con zona horaria), solo se devuelven los técnicos con una franja de disponibilidad
+semanal que incluya ese instante en hora de Colombia; un técnico sin franjas declaradas no aparece. Si ms-users exige
+verificación vigente (`fixia.eligibility.require-verified`), solo se devuelven los verificados: es configuración de
+ms-users y no cambia esta API.
 
 **Paginación por cursor.** Una consulta revisa como máximo 1500 técnicos. Una página puede venir corta, o vacía, con
 `nextCursor` no nulo: hay que seguir pidiendo hasta que sea nulo.

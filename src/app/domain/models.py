@@ -1,5 +1,6 @@
 """Modelo del dominio de matching: qué se busca y qué se devuelve. Sin dependencias de FastAPI ni de HTTP."""
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 
 
@@ -44,7 +45,8 @@ class CandidatePage:
 
 @dataclass(frozen=True)
 class MatchQuery:
-    """Lo que se busca: categoría y ciudad, y opcionalmente el punto aproximado de la solicitud."""
+    """Lo que se busca: categoría y ciudad, y opcionalmente el punto aproximado de la solicitud y su momento esperado
+    (con zona horaria: se normaliza a UTC antes de llegar aquí)."""
 
     category: Category
     city: str
@@ -52,6 +54,7 @@ class MatchQuery:
     longitude: float | None
     limit: int
     cursor: str | None
+    expected_at: datetime | None = None
 
 
 @dataclass(frozen=True)

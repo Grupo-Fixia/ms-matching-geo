@@ -252,6 +252,72 @@ def test_la_ciudad_se_envia_sin_espacios_sobrantes(client, users):
     assert users.search_bodies[0]["city"] == "Bogotá"
 
 
+# ---------- Disponibilidad: expectedAt (GC-474) ----------
+
+
+def test_envia_el_momento_esperado_a_ms_users_en_utc_terminado_en_z(client, users, client_token):
+    # 09:00 en Bogotá (-05:00) son las 14:00 UTC.
+    client.post(PUBLIC, json={**BODY, "expectedAt": "2026-10-19T09:00:00-05:00"}, headers=bearer(client_token))
+    client.post(INTERNAL, json={**BODY, "expectedAt": "2026-10-19T14:00:00Z"}, headers=INTERNAL_HEADERS)
+
+    assert [body["expectedAt"] for body in users.search_bodies] == ["2026-10-19T14:00:00Z"] * 2
+
+
+@pytest.mark.parametrize("body", [BODY, {**BODY, "expectedAt": None}])
+def test_sin_momento_esperado_ms_users_no_recibe_el_campo(client, users, body):
+    client.post(INTERNAL, json=body, headers=INTERNAL_HEADERS)
+
+    assert users.search_bodies == [{"category": "PLUMBING", "city": "Bogotá", "limit": 20}]
+
+
+def test_la_disponibilidad_se_evalua_en_ms_users_y_se_refleja_en_el_resultado(client, users, client_token):
+    users.on_search = lambda body: (
+        page([item("disponible")]) if body.get("expectedAt") == "2026-10-19T14:00:00Z" else page([item("a"), item("b")])
+    )
+
+    with_time = client.post(
+        PUBLIC, json={**BODY, "expectedAt": "2026-10-19T09:00:00-05:00"}, headers=bearer(client_token)
+    ).json()
+    without_time = client.post(PUBLIC, json=BODY, headers=bearer(client_token)).json()
+
+    assert [match["userId"] for match in with_time["items"]] == ["disponible"]
+    assert [match["userId"] for match in without_time["items"]] == ["a", "b"]
+
+
+def test_el_momento_esperado_viaja_en_todas_las_llamadas_de_una_consulta_paginada(client, users, client_token):
+    excluded = item("fuera-de-zona", circle=(*CENTER, 1))
+    pages = iter([page([excluded], "c1"), page([excluded], "c2"), page([item("dentro")], None)])
+    users.on_search = lambda body: next(pages)
+
+    response = client.post(
+        PUBLIC,
+        json={**BODY, "latitude": CHAPINERO[0], "longitude": CHAPINERO[1], "expectedAt": "2026-10-19T14:00:00Z"},
+        headers=bearer(client_token),
+    )
+
+    assert [match["userId"] for match in response.json()["items"]] == ["dentro"]
+    assert [body["expectedAt"] for body in users.search_bodies] == ["2026-10-19T14:00:00Z"] * 3
+
+
+@pytest.mark.parametrize(
+    "value,message",
+    [
+        ("2026-10-19T09:00:00", "debe incluir zona horaria"),
+        ("2026-10-19", "debe incluir zona horaria"),
+        ("ayer por la tarde", "no es una fecha y hora ISO-8601 válida"),
+        ("2026-13-45T25:61:00Z", "no es una fecha y hora ISO-8601 válida"),
+    ],
+)
+def test_un_momento_esperado_ambiguo_o_invalido_da_400_con_mensaje_en_espanol(client, users, value, message):
+    response = client.post(INTERNAL, json={**BODY, "expectedAt": value}, headers=INTERNAL_HEADERS)
+
+    assert response.status_code == 400
+    errors = response.json()["errors"]
+    assert [error["field"] for error in errors] == ["expectedAt"]
+    assert message in errors[0]["message"]
+    assert users.search_bodies == []
+
+
 # ---------- Cursor y fallos de ms-users ----------
 
 
