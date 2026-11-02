@@ -1,6 +1,7 @@
 """Cliente de ms-users para la búsqueda de técnicos: `POST /internal/technicians/search`, ruta interna que protege la
 clave compartida `X-Internal-Api-Key` (ADR-040). Los datos del técnico viven en la base de ms-users (ADR-015/022)."""
 import logging
+from datetime import datetime, timezone
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -41,10 +42,15 @@ class UsersTechnicianDirectory:
         self._client = client
         self._api_key = api_key
 
-    def search(self, category: Category, city: str, limit: int, cursor: str | None) -> CandidatePage:
+    def search(
+        self, category: Category, city: str, limit: int, cursor: str | None, expected_at: datetime | None = None
+    ) -> CandidatePage:
         body: dict[str, object] = {"category": category.value, "city": city, "limit": limit}
         if cursor is not None:
             body["cursor"] = cursor
+        if expected_at is not None:
+            # Siempre en UTC y terminado en "Z": el formato que ms-users (Instant) parsea sin ambigüedad.
+            body["expectedAt"] = expected_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         try:
             response = self._client.post(SEARCH_PATH, json=body, headers={API_KEY_HEADER: self._api_key})
         except httpx.HTTPError as error:

@@ -24,9 +24,19 @@ def _field(location: tuple) -> str:
     return ".".join(str(part) for part in location[1:]) or "body"
 
 
+_MESSAGES = {
+    "missing": "El campo es obligatorio",
+    # expectedAt: una fecha sin zona horaria es ambigua (¿hora de Colombia o UTC?), así que se rechaza.
+    "timezone_aware": "El momento esperado debe incluir zona horaria, por ejemplo 2026-10-19T09:00:00-05:00 o terminada en Z",
+    "datetime_parsing": "El momento esperado no es una fecha y hora ISO-8601 válida",
+    "datetime_from_date_parsing": "El momento esperado no es una fecha y hora ISO-8601 válida",
+    "datetime_type": "El momento esperado no es una fecha y hora ISO-8601 válida",
+}
+
+
 def _message(error: dict) -> str:
-    if error["type"] == "missing":
-        return "El campo es obligatorio"
+    if error["type"] in _MESSAGES:
+        return _MESSAGES[error["type"]]
     message = str(error["msg"])
     # Los mensajes de nuestros validadores llegan como "Value error, <mensaje>".
     return message.removeprefix("Value error, ")

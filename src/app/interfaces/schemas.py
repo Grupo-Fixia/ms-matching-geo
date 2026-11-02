@@ -1,5 +1,7 @@
 """Contrato HTTP de la búsqueda de técnicos. Los campos viajan en camelCase, como en ms-users y ms-services."""
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from datetime import timezone
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 from src.app.domain.models import Category, MatchPage, MatchQuery
@@ -15,7 +17,8 @@ class CamelModel(BaseModel):
 
 class MatchRequest(CamelModel):
     """Qué técnicos se buscan: los que ofrecen la categoría y atienden la ciudad. Si trae el punto aproximado de la
-    solicitud (`latitude` y `longitude`, juntas), se descartan los técnicos cuyo círculo de zona no lo cubre."""
+    solicitud (`latitude` y `longitude`, juntas), se descartan los técnicos cuyo círculo de zona no lo cubre. Si trae el
+    momento esperado (`expectedAt`), se descartan los que no tienen una franja de disponibilidad que lo incluya."""
 
     category: Category = Field(description="Categoría de servicio.")
     city: str = Field(
@@ -25,6 +28,15 @@ class MatchRequest(CamelModel):
     )
     latitude: float | None = Field(default=None, ge=-90, le=90, description="Latitud aproximada de la solicitud.")
     longitude: float | None = Field(default=None, ge=-180, le=180, description="Longitud aproximada de la solicitud.")
+    expected_at: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "Momento esperado de la solicitud (ISO-8601, con zona horaria). Si viene, solo se devuelven los técnicos con "
+            "una franja de disponibilidad semanal que lo incluya, en hora de Colombia; un técnico sin franjas declaradas "
+            "no aparece. Sin él no se filtra por horario."
+        ),
+        examples=["2026-10-19T09:00:00-05:00"],
+    )
     limit: int | None = Field(
         default=None, ge=1, le=MAX_LIMIT, description=f"Resultados por página (por defecto {DEFAULT_LIMIT})."
     )
@@ -53,6 +65,7 @@ class MatchRequest(CamelModel):
             longitude=self.longitude,
             limit=self.limit if self.limit is not None else DEFAULT_LIMIT,
             cursor=self.cursor or None,
+            expected_at=self.expected_at.astimezone(timezone.utc) if self.expected_at else None,
         )
 
 
