@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-matching-geo
+  namespace: apps
+  labels:
+    app: ms-matching-geo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-matching-geo
+  template:
+    metadata:
+      labels:
+        app: ms-matching-geo
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: ms-matching-geo
+      containers:
+        - name: ms-matching-geo
+          image: ${IMAGE}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: USERS_BASE_URL
+              value: "http://ms-users:8080"
+            - name: JWT_ISSUER
+              value: "https://auth.fixia.com"
+            - name: JWT_AUDIENCE
+              value: "https://api.fixia.com"
+          envFrom:
+            - secretRef:
+                name: ms-matching-geo-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-matching-geo
+  namespace: apps
+  labels:
+    app: ms-matching-geo
+spec:
+  selector:
+    app: ms-matching-geo
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ms-matching-geo
+  namespace: apps
+  annotations:
+    traefik.ingress.kubernetes.io/router.priority: "20"
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /api/geo
+            pathType: Prefix
+            backend:
+              service:
+                name: ms-matching-geo
+                port:
+                  number: 8000
+
