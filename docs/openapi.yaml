@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Geo Matching Service
-  description: Técnicos compatibles con una categoría y una zona de atención, con los datos de ms-users.
+  description: Técnicos compatibles con una categoría y una zona de atención, con la réplica del estado que publica ms-users.
   version: 0.1.0
 paths:
   /api/geo/matching/technicians:
@@ -30,10 +30,10 @@ paths:
         `nextCursor` no nulo: hay que seguir pidiendo hasta que sea nulo.
 
 
-        No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si ms-users no responde, devuelve 502 y no
-        una
+        No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si la réplica de técnicos aún no cargó, devuelve
+        502 y
 
-        lista vacía.
+        no una lista vacía.
 
 
         Solo con rol `CLIENT`. Revisa la revocación del token en ms-users en cada petición.'
@@ -109,10 +109,10 @@ paths:
         `nextCursor` no nulo: hay que seguir pidiendo hasta que sea nulo.
 
 
-        No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si ms-users no responde, devuelve 502 y no
-        una
+        No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si la réplica de técnicos aún no cargó, devuelve
+        502 y
 
-        lista vacía.
+        no una lista vacía.
 
 
         Ruta interna para otros microservicios (ms-services); Traefik no la publica. Protegida por la cabecera `X-Internal-Api-Key`.'

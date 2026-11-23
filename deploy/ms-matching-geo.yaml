@@ -31,8 +31,9 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            - name: USERS_BASE_URL
-              value: "http://ms-users:8080"
+            # GC-547: los técnicos y la revocación llegan por Kafka; ya no se llama a ms-users.
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-0.kafka.data.svc.cluster.local:9092"
             - name: JWT_ISSUER
               value: "https://auth.fixia.com"
             - name: JWT_AUDIENCE

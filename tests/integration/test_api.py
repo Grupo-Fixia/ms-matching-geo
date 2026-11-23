@@ -1,8 +1,9 @@
-"""Las dos rutas de punta a punta dentro del proceso: FastAPI real, ms-users simulado por el transporte de httpx."""
-import httpx
+"""Las dos rutas de punta a punta dentro del proceso: FastAPI real con un doble de la réplica local de técnicos y de
+la lista de revocados (GC-547: ya no se llama a ms-users)."""
 import pytest
 
-from tests.conftest import INTERNAL_KEY, build_client, item, make_token, page
+from src.app.application.errors import InvalidCursor, UpstreamUnavailable
+from tests.conftest import INTERNAL_KEY, build_client, item, make_token, page, raising
 
 PUBLIC = "/api/geo/matching/technicians"
 INTERNAL = "/internal/matching/technicians"
@@ -78,14 +79,13 @@ def test_pasa_el_cursor_y_devuelve_el_siguiente(client, users, client_token):
     assert users.search_bodies[0]["limit"] == 1
 
 
-def test_consulta_a_ms_users_con_la_clave_interna_y_codifica_el_jti_en_la_ruta(client, users, keys):
+def test_comprueba_la_revocacion_del_jti_del_token_sin_llamar_a_ms_users(client, users, keys):
     token = make_token(keys[0], jti="a/b..c")
 
     response = client.post(PUBLIC, json=BODY, headers=bearer(token))
 
     assert response.status_code == 200
-    assert users.revocation_paths == ["/internal/tokens/a%2Fb..c/status"]
-    assert set(users.api_keys) == {INTERNAL_KEY}
+    assert users.checked_jtis == ["a/b..c"]
 
 
 def _unauthorized_body(response) -> dict:
@@ -119,29 +119,11 @@ def test_toda_credencial_invalida_da_el_mismo_401(client, users, keys, other_key
     assert users.search_bodies == []
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        lambda: httpx.Response(500),
-        lambda: httpx.Response(200, json={"revoked": "no"}),
-        lambda: httpx.Response(200, content=b"no es json"),
-        lambda: httpx.Response(200, json={}),
-    ],
-)
-def test_si_no_se_puede_comprobar_la_revocacion_el_token_se_rechaza(client, users, client_token, failure):
-    users.revocation_error = failure
+def test_si_la_lista_de_revocados_no_esta_al_dia_el_token_se_rechaza(client, users, client_token):
+    users.revocation_error = True
 
     _unauthorized_body(client.post(PUBLIC, json=BODY, headers=bearer(client_token)))
     assert users.search_bodies == []
-
-
-def test_si_ms_users_no_responde_a_la_revocacion_el_token_se_rechaza(keys, client_token):
-    def down(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectTimeout("sin respuesta", request=request)
-
-    client = build_client(keys[1], down)
-
-    _unauthorized_body(client.post(PUBLIC, json=BODY, headers=bearer(client_token)))
 
 
 @pytest.mark.parametrize("role", ["ROLE_PROFESSIONAL", "ROLE_COMPANY"])
@@ -318,11 +300,11 @@ def test_un_momento_esperado_ambiguo_o_invalido_da_400_con_mensaje_en_espanol(cl
     assert users.search_bodies == []
 
 
-# ---------- Cursor y fallos de ms-users ----------
+# ---------- Cursor y réplica no cargada ----------
 
 
-def test_un_cursor_que_ms_users_rechaza_da_400(client, users):
-    users.on_search = lambda body: httpx.Response(400, json={"detail": "El cursor no es válido"})
+def test_un_cursor_que_el_directorio_rechaza_da_400(client, users):
+    users.on_search = raising(InvalidCursor())
 
     response = client.post(INTERNAL, json={**BODY, "cursor": "falso"}, headers=INTERNAL_HEADERS)
 
@@ -330,34 +312,14 @@ def test_un_cursor_que_ms_users_rechaza_da_400(client, users):
     assert response.json()["detail"] == "El cursor no es válido"
 
 
-@pytest.mark.parametrize(
-    "answer",
-    [
-        lambda body: httpx.Response(400),  # sin cursor, un 400 de ms-users no es culpa del cliente
-        lambda body: httpx.Response(401),
-        lambda body: httpx.Response(500),
-        lambda body: httpx.Response(200, content=b"no es json"),
-        lambda body: httpx.Response(200, json={"items": "no es una lista"}),
-        lambda body: httpx.Response(200, json={"items": [{"userId": "t1"}]}),
-    ],
-)
-def test_si_ms_users_falla_o_responde_algo_invalido_da_502_y_no_una_lista_vacia(client, users, answer):
-    users.on_search = answer
+def test_si_la_replica_de_tecnicos_no_esta_cargada_da_502_y_no_una_lista_vacia(client, users):
+    users.on_search = raising(UpstreamUnavailable("La réplica de técnicos aún no está cargada"))
 
     response = client.post(INTERNAL, json=BODY, headers=INTERNAL_HEADERS)
 
     assert response.status_code == 502
     assert response.json()["title"] == "Servicio no disponible"
     assert "items" not in response.json()
-
-
-def test_si_ms_users_no_responde_da_502(keys):
-    def down(request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("tarda demasiado", request=request)
-
-    client = build_client(keys[1], down)
-
-    assert client.post(INTERNAL, json=BODY, headers=INTERNAL_HEADERS).status_code == 502
 
 
 # ---------- Salud ----------
