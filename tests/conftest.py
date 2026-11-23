@@ -1,26 +1,25 @@
-"""Utilidades de prueba: un par RSA para firmar tokens como lo haría ms-users y un ms-users simulado (transporte de
-httpx) que responde la búsqueda de técnicos y la consulta de revocación."""
-import json
+"""Utilidades de prueba: un par RSA para firmar tokens como lo haría ms-users y un doble de la réplica local (GC-547)
+que responde la búsqueda de técnicos y la revocación de tokens, en lugar de ms-users."""
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from urllib.parse import unquote
+from datetime import datetime, timezone
 
-import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
+from src.app.application.errors import RevocationCheckFailed
 from src.app.config import Settings
+from src.app.domain.models import Candidate, CandidatePage, Category, ZoneCircle
 from src.app.main import create_app
 
 ISSUER = "https://auth.fixia.com"
 AUDIENCE = "https://api.fixia.com"
 INTERNAL_KEY = "clave-interna-de-prueba"
-USERS_URL = "http://ms-users:8080"
 
 
 def new_key_pair() -> tuple[str, str]:
@@ -76,48 +75,58 @@ def item(
     circle: tuple[float, float, int] | None = None,
     name: str = "Carlos G.",
     categories: tuple[str, ...] = ("PLUMBING",),
-) -> dict:
-    """Un técnico tal como lo devuelve ms-users."""
-    return {
-        "userId": user_id,
-        "displayName": name,
-        "categories": list(categories),
-        "city": city,
-        "circle": {"latitude": circle[0], "longitude": circle[1], "radiusKm": circle[2]} if circle else None,
-    }
+) -> Candidate:
+    """Un técnico tal como lo entrega el directorio."""
+    return Candidate(
+        user_id=user_id,
+        display_name=name,
+        categories=tuple(categories),
+        city=city,
+        circle=ZoneCircle(*circle) if circle else None,
+    )
 
 
-def page(items: list[dict], next_cursor: str | None = None) -> httpx.Response:
-    return httpx.Response(200, json={"items": items, "nextCursor": next_cursor})
+def page(items: list[Candidate], next_cursor: str | None = None) -> CandidatePage:
+    return CandidatePage(items=items, next_cursor=next_cursor)
+
+
+def raising(error: Exception) -> Callable[[dict], CandidatePage]:
+    """Un `on_search` que falla con `error`."""
+
+    def search(body: dict) -> CandidatePage:
+        raise error
+
+    return search
 
 
 @dataclass
 class FakeUsers:
-    """ms-users simulado. `on_search` decide la respuesta de la búsqueda; `revoked` son los jti revocados."""
+    """Doble del directorio de técnicos y de la lista de revocados. `on_search` recibe la consulta como diccionario
+    (las mismas claves que antes viajaban a ms-users) y decide la página; `revoked` son los jti revocados y
+    `revocation_error` simula una lista que no está al día."""
 
-    on_search: Callable[[dict], httpx.Response] = lambda body: page([])
+    on_search: Callable[[dict], CandidatePage] = lambda body: page([])
     revoked: set[str] = field(default_factory=set)
-    revocation_error: Callable[[], httpx.Response] | None = None
+    revocation_error: bool = False
     search_bodies: list[dict] = field(default_factory=list)
-    revocation_paths: list[str] = field(default_factory=list)
-    api_keys: list[str | None] = field(default_factory=list)
+    checked_jtis: list[str] = field(default_factory=list)
 
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        self.api_keys.append(request.headers.get("X-Internal-Api-Key"))
-        if request.headers.get("X-Internal-Api-Key") != INTERNAL_KEY:
-            return httpx.Response(401)
-        path = request.url.raw_path.decode()
-        if request.method == "POST" and path == "/internal/technicians/search":
-            body = json.loads(request.content)
-            self.search_bodies.append(body)
-            return self.on_search(body)
-        if request.method == "GET" and path.startswith("/internal/tokens/") and path.endswith("/status"):
-            self.revocation_paths.append(path)
-            if self.revocation_error is not None:
-                return self.revocation_error()
-            jti = path.removeprefix("/internal/tokens/").removesuffix("/status")
-            return httpx.Response(200, json={"revoked": unquote(jti) in self.revoked})
-        return httpx.Response(404)
+    def search(
+        self, category: Category, city: str, limit: int, cursor: str | None, expected_at: datetime | None = None
+    ) -> CandidatePage:
+        body: dict[str, object] = {"category": category.value, "city": city, "limit": limit}
+        if cursor is not None:
+            body["cursor"] = cursor
+        if expected_at is not None:
+            body["expectedAt"] = expected_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        self.search_bodies.append(body)
+        return self.on_search(body)
+
+    def is_revoked(self, jti: str) -> bool:
+        self.checked_jtis.append(jti)
+        if self.revocation_error:
+            raise RevocationCheckFailed("La lista no está al día")
+        return jti in self.revoked
 
 
 @pytest.fixture
@@ -125,20 +134,15 @@ def users() -> FakeUsers:
     return FakeUsers()
 
 
-def build_client(
-    public_pem: str, users: "FakeUsers | Callable[[httpx.Request], httpx.Response]", internal_api_key: str = INTERNAL_KEY
-) -> TestClient:
-    """La aplicación con ms-users simulado: un `FakeUsers` o, para forzar fallos de red, un manejador propio."""
-    handler = users.handle if isinstance(users, FakeUsers) else users
+def build_client(public_pem: str, users: FakeUsers, internal_api_key: str = INTERNAL_KEY) -> TestClient:
+    """La aplicación con el doble de la réplica en lugar de los consumidores de Kafka."""
     settings = Settings(
         jwt_public_key=public_pem,
         jwt_issuer=ISSUER,
         jwt_audience=AUDIENCE,
-        users_base_url=USERS_URL,
         internal_api_key=internal_api_key,
     )
-    http_client = httpx.Client(base_url=USERS_URL, transport=httpx.MockTransport(handler))
-    return TestClient(create_app(settings, http_client))
+    return TestClient(create_app(settings, directory=users, revocation_checker=users))
 
 
 @pytest.fixture

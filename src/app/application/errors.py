@@ -2,11 +2,11 @@
 
 
 class InvalidCursor(Exception):
-    """El cursor no es uno que ms-users haya emitido. Responde 400."""
+    """El cursor no es uno que el directorio haya emitido. Responde 400."""
 
 
 class UpstreamUnavailable(Exception):
-    """ms-users no respondió, tardó demasiado o respondió algo inválido. Responde 502: nunca una lista vacía, que
+    """El directorio no puede responder (la réplica de técnicos aún no cargó). Responde 502: nunca una lista vacía, que
     parecería que no hay técnicos."""
 
 
@@ -15,7 +15,7 @@ class InvalidToken(Exception):
 
 
 class RevocationCheckFailed(Exception):
-    """No se pudo comprobar la revocación del token en ms-users. Se trata como token inválido (falla cerrado)."""
+    """No se pudo comprobar la revocación (la lista local no está al día). Se trata como token inválido (falla cerrado)."""
 
 
 class AuthenticationFailed(Exception):
