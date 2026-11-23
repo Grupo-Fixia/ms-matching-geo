@@ -26,8 +26,8 @@ ms-users y no cambia esta API.
 **Paginación por cursor.** Una consulta revisa como máximo 1500 técnicos. Una página puede venir corta, o vacía, con
 `nextCursor` no nulo: hay que seguir pidiendo hasta que sea nulo.
 
-No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si ms-users no responde, devuelve 502 y no una
-lista vacía."""
+No devuelve distancia, centro ni radio de la zona, ni datos de contacto. Si la réplica de técnicos aún no cargó, devuelve 502 y
+no una lista vacía."""
 
 router = APIRouter()
 

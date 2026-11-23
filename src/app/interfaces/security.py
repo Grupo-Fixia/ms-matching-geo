@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 from dataclasses import dataclass
+from typing import Protocol
 
 from fastapi import Depends, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -15,7 +16,6 @@ from src.app.application.errors import (
 )
 from src.app.application.matching_service import MatchingService
 from src.app.infrastructure.jwt_validator import JwtValidator, TokenClaims
-from src.app.infrastructure.token_revocation import TokenRevocationClient
 
 CLIENT_ROLE = "ROLE_CLIENT"
 
@@ -27,13 +27,20 @@ internal_key_scheme = APIKeyHeader(
 )
 
 
+class RevocationChecker(Protocol):
+    """Dice si un token fue revocado; lanza `RevocationCheckFailed` si no se puede saber (GC-547: lista local)."""
+
+    def is_revoked(self, jti: str) -> bool:
+        ...
+
+
 @dataclass(frozen=True)
 class Container:
     """Lo que las dependencias necesitan, armado una sola vez al crear la aplicación."""
 
     matching_service: MatchingService
     jwt_validator: JwtValidator
-    revocation_client: TokenRevocationClient
+    revocation_client: "RevocationChecker"
     internal_api_key: str
 
 
@@ -60,7 +67,7 @@ def require_client(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     container: Container = Depends(get_container),
 ) -> TokenClaims:
-    """Firma, vigencia, emisor y audiencia; luego revocación en ms-users (sin caché, falla cerrado); por último el rol.
+    """Firma, vigencia, emisor y audiencia; luego revocación con la lista local (GC-547, falla cerrado); por último el rol.
     Solo un cliente puede explorar técnicos."""
     if credentials is None or not credentials.credentials:
         raise AuthenticationFailed()

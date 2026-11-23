@@ -6,7 +6,8 @@ from src.app.domain.models import CandidatePage, Category
 
 
 class TechnicianDirectory(Protocol):
-    """Técnicos que ofrecen una categoría y atienden una ciudad. Los datos viven en ms-users (Database per Service)."""
+    """Técnicos que ofrecen una categoría y atienden una ciudad. Los datos son de ms-users; desde GC-547 se leen de una
+    réplica local alimentada por Kafka."""
 
     def search(
         self, category: Category, city: str, limit: int, cursor: str | None, expected_at: datetime | None = None

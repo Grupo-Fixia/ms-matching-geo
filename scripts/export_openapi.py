@@ -8,7 +8,6 @@ Una prueba (tests/test_openapi.py) falla si el archivo no coincide con lo que ge
 """
 from pathlib import Path
 
-import httpx
 import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -27,7 +26,7 @@ def build_spec() -> dict:
         .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
         .decode()
     )
-    app = create_app(Settings(jwt_public_key=public_pem), httpx.Client())
+    app = create_app(Settings(jwt_public_key=public_pem))
     return app.openapi()
 
 
