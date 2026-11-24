@@ -19,10 +19,12 @@ def test_valores_por_defecto_iguales_a_los_de_ms_users_y_ms_services():
 
     assert settings.jwt_issuer == "https://auth.fixia.com"
     assert settings.jwt_audience == "https://api.fixia.com"
-    assert settings.users_base_url == "http://ms-users:8080"
-    assert settings.users_connect_timeout == 1.0
-    assert settings.users_read_timeout == 2.0
     assert settings.internal_api_key == "k"
+    # GC-547: los consumidores de Kafka se encienden por defecto fuera de las pruebas.
+    assert settings.technicians_consumer_enabled is True
+    assert settings.technicians_topic == "fixia.users.technician-states"
+    assert settings.revocations_consumer_enabled is True
+    assert settings.revocations_max_staleness == 5.0
 
 
 def test_la_clave_con_saltos_de_linea_escritos_como_texto_se_restaura():
@@ -37,27 +39,29 @@ def test_toma_los_valores_del_entorno():
             "JWT_PUBLIC_KEY": PEM,
             "JWT_ISSUER": "emisor",
             "JWT_AUDIENCE": "audiencia",
-            "USERS_BASE_URL": "http://localhost:18080",
-            "USERS_CONNECT_TIMEOUT": "500ms",
-            "USERS_READ_TIMEOUT": "3s",
+            "KAFKA_HOST": "kafka:9092",
+            "FIXIA_TECHNICIANS_CONSUMER_ENABLED": "false",
+            "FIXIA_REVOCATIONS_MAX_STALENESS": "500ms",
+            "FIXIA_REVOCATIONS_LOOKBACK": "3s",
         }
     )
 
     assert (settings.jwt_issuer, settings.jwt_audience) == ("emisor", "audiencia")
-    assert settings.users_base_url == "http://localhost:18080"
-    assert settings.users_connect_timeout == 0.5
-    assert settings.users_read_timeout == 3.0
+    assert settings.kafka_bootstrap_servers == "kafka:9092"
+    assert settings.technicians_consumer_enabled is False
+    assert settings.revocations_max_staleness == 0.5
+    assert settings.revocations_lookback == 3.0
 
 
 def test_duraciones_en_segundos_sin_sufijo():
-    settings = Settings.from_env({"JWT_PUBLIC_KEY": PEM, "USERS_READ_TIMEOUT": "1.5"})
+    settings = Settings.from_env({"JWT_PUBLIC_KEY": PEM, "FIXIA_REVOCATIONS_MAX_STALENESS": "1.5"})
 
-    assert settings.users_read_timeout == 1.5
+    assert settings.revocations_max_staleness == 1.5
 
 
 def test_una_duracion_invalida_es_un_error_de_configuracion():
-    with pytest.raises(ConfigError, match="USERS_READ_TIMEOUT"):
-        Settings.from_env({"JWT_PUBLIC_KEY": PEM, "USERS_READ_TIMEOUT": "mucho"})
+    with pytest.raises(ConfigError, match="FIXIA_REVOCATIONS_MAX_STALENESS"):
+        Settings.from_env({"JWT_PUBLIC_KEY": PEM, "FIXIA_REVOCATIONS_MAX_STALENESS": "mucho"})
 
 
 def test_avisa_si_falta_la_clave_interna(caplog):

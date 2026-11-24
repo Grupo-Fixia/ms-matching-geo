@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ISSUER = "https://auth.fixia.com"
 DEFAULT_AUDIENCE = "https://api.fixia.com"
-DEFAULT_USERS_BASE_URL = "http://ms-users:8080"
 
 
 class ConfigError(Exception):
@@ -33,10 +32,17 @@ class Settings:
     jwt_public_key: str = field(repr=False)
     jwt_issuer: str = DEFAULT_ISSUER
     jwt_audience: str = DEFAULT_AUDIENCE
-    users_base_url: str = DEFAULT_USERS_BASE_URL
     internal_api_key: str = field(default="", repr=False)
-    users_connect_timeout: float = 1.0
-    users_read_timeout: float = 2.0
+    # Cero dependencias síncronas (GC-547): los técnicos y la revocación llegan por Kafka. Los consumidores están
+    # apagados por defecto aquí, para las pruebas; from_env los enciende salvo que se apaguen por variable.
+    kafka_bootstrap_servers: str = "localhost:9092"
+    technicians_consumer_enabled: bool = False
+    technicians_topic: str = "fixia.users.technician-states"
+    revocations_consumer_enabled: bool = False
+    revocations_topic: str = "fixia.users.sessions"
+    revocations_max_staleness: float = 5.0
+    revocations_lookback: float = 1200.0
+    group_prefix: str = "ms-matching-geo"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -47,16 +53,23 @@ class Settings:
             raise ConfigError("JWT_PUBLIC_KEY es obligatoria (clave pública X.509 de ms-users, en PEM)")
         internal_api_key = env.get("INTERNAL_API_KEY", "")
         if not internal_api_key:
-            logger.warning(
-                "INTERNAL_API_KEY no está configurada: la ruta interna rechaza todo y no se puede comprobar "
-                "la revocación de los tokens, así que la ruta pública también rechaza todo"
-            )
+            logger.warning("INTERNAL_API_KEY no está configurada: la ruta interna rechaza todo")
         return cls(
             jwt_public_key=public_key,
             jwt_issuer=env.get("JWT_ISSUER") or DEFAULT_ISSUER,
             jwt_audience=env.get("JWT_AUDIENCE") or DEFAULT_AUDIENCE,
-            users_base_url=env.get("USERS_BASE_URL") or DEFAULT_USERS_BASE_URL,
             internal_api_key=internal_api_key,
-            users_connect_timeout=_seconds(env.get("USERS_CONNECT_TIMEOUT"), 1.0, "USERS_CONNECT_TIMEOUT"),
-            users_read_timeout=_seconds(env.get("USERS_READ_TIMEOUT"), 2.0, "USERS_READ_TIMEOUT"),
+            kafka_bootstrap_servers=env.get("KAFKA_BOOTSTRAP_SERVERS") or env.get("KAFKA_HOST") or "localhost:9092",
+            technicians_consumer_enabled=_enabled(env, "FIXIA_TECHNICIANS_CONSUMER_ENABLED"),
+            technicians_topic=env.get("FIXIA_TECHNICIANS_TOPIC") or "fixia.users.technician-states",
+            revocations_consumer_enabled=_enabled(env, "FIXIA_REVOCATIONS_CONSUMER_ENABLED"),
+            revocations_topic=env.get("FIXIA_REVOCATIONS_TOPIC") or "fixia.users.sessions",
+            revocations_max_staleness=_seconds(env.get("FIXIA_REVOCATIONS_MAX_STALENESS"), 5.0,
+                                               "FIXIA_REVOCATIONS_MAX_STALENESS"),
+            revocations_lookback=_seconds(env.get("FIXIA_REVOCATIONS_LOOKBACK"), 1200.0, "FIXIA_REVOCATIONS_LOOKBACK"),
+            group_prefix=env.get("FIXIA_CONSUMER_GROUP_PREFIX") or "ms-matching-geo",
         )
+
+
+def _enabled(env: Mapping[str, str], name: str) -> bool:
+    return env.get(name, "true").strip().lower() != "false"
