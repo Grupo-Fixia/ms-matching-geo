@@ -99,4 +99,20 @@ spec:
                 name: ms-matching-geo
                 port:
                   number: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-matching-geo-metrics
+  namespace: apps
+  labels:
+    app: ms-matching-geo
+spec:
+  type: LoadBalancer
+  selector:
+    app: ms-matching-geo
+  ports:
+    - name: metrics
+      port: 9104
+      targetPort: 8000
 

@@ -10,6 +10,7 @@ from src.app.infrastructure.jwt_validator import JwtValidator
 from src.app.infrastructure.replication import ReplicatedTechnicianDirectory, TechnicianReplica, TopicConsumer
 from src.app.infrastructure.revocation import ReplicatedRevocationChecker, RevocationList, apply_message
 from src.app.interfaces.errors import register_error_handlers
+from src.app.interfaces.metrics import register_prometheus_metrics
 from src.app.interfaces.routers import router
 from src.app.interfaces.security import Container, RevocationChecker
 
@@ -71,6 +72,7 @@ def create_app(
         internal_api_key=settings.internal_api_key,
     )
     register_error_handlers(app)
+    register_prometheus_metrics(app)
     app.include_router(router)
 
     @app.get("/health", tags=["health"])

@@ -331,3 +331,19 @@ def test_health(client):
     assert response.status_code == 200
     assert response.json() == {"service": "ms-matching-geo", "status": "UP"}
 
+
+def test_prometheus_metrics_exposures_and_normalized_uri(client, users, client_token):
+    users.on_search = lambda body: page([item("t1")])
+    assert client.post(PUBLIC, json=BODY, headers=bearer(client_token)).status_code == 200
+    assert client.get("/api/geo/nonexistent/11111111-2222-3333-4444-555555555555").status_code == 404
+
+    for metrics_path in ("/metrics", "/actuator/prometheus"):
+        res = client.get(metrics_path)
+        assert res.status_code == 200
+        assert "text/plain" in res.headers["content-type"]
+        body = res.text
+        assert 'http_server_requests_seconds_count{method="POST",outcome="SUCCESS",status="200",uri="/api/geo/matching/technicians"}' in body
+        assert 'uri="UNKNOWN"' not in body
+        assert 'uri="/api/geo/nonexistent/{id}"' in body
+
+
